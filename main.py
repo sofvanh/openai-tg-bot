@@ -152,7 +152,7 @@ async def http_handler(request: Request):
     if prompt in ["/start", "/help"]:
         response_text = (
             "welcome to telemage. to generate an image with ai,"
-            " send me a prompt or phrase and i'll do some magic."
+            " send /image followed by a prompt or phrase and i'll do some magic."
         )
         payload = {"text": response_text, "chat_id": chat_id}
         message_url = f"{BOT_URL}/sendMessage"
@@ -165,13 +165,15 @@ async def http_handler(request: Request):
         requests.post(message_url, json=payload).json()
         return
 
-    response = image_generator.generate(prompt)
-    if "b64_json" in response:
-        return save_and_send_img(
-            response["b64_json"], chat_id, prompt
-        )
-    elif "error" in response:
-        return send_error(chat_id, response["error"])
+    if prompt.startswith("/image "):
+        image_prompt = prompt[len("/image "):]
+        response = image_generator.generate(image_prompt)
+        if "b64_json" in response:
+            return save_and_send_img(response["b64_json"], chat_id, image_prompt)
+        elif "error" in response:
+            return send_error(chat_id, response["error"])
+    else:
+        return send_error(chat_id, "Send /image followed by a prompt to generate an image.")
 
     return send_error(chat_id, "Unknown error, lol, handling coming soon")
 
