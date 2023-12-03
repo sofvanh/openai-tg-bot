@@ -194,18 +194,23 @@ async def http_handler(request: Request, background_tasks: BackgroundTasks):
         return
 
     if prompt.startswith("/image "):
-        image_prompt = prompt[len("/image "):]
-        response = image_generator.generate(image_prompt)
-        if "b64_json" in response:
-            return save_and_send_img(response["b64_json"], chat_id, image_prompt)
-        elif "error" in response:
-            return send_message(chat_id, response["error"])
+        background_tasks.add_task(process_image_request, chat_id, prompt)
+        return send_message(chat_id, "Creating 🎨")
 
     if prompt.startswith("/speech "):
         background_tasks.add_task(process_speech_request, chat_id, prompt)
         return send_message(chat_id, "Processing started ⏳")
 
     return send_message(chat_id, "Send /image {prompt} to generate an image, or /speech {text or link to PDF} to generate audio.")
+
+
+def process_image_request(chat_id, prompt):
+    image_prompt = prompt[len("/image "):]
+    response = image_generator.generate(image_prompt)
+    if "b64_json" in response:
+        return save_and_send_img(response["b64_json"], chat_id, image_prompt)
+    elif "error" in response:
+        return send_message(chat_id, response["error"])
 
 
 def process_speech_request(chat_id, prompt):
