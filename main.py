@@ -1,4 +1,3 @@
-import base64
 import os
 import time
 import requests
@@ -56,9 +55,8 @@ env_error = (
 # BACKEND + TELEGRAM FUNCTIONALITY
 
 
-def save_and_send_img(b64img, chat_id, prompt):
-    image_data = base64.b64decode(b64img)
-    photo_payload = {"photo": image_data}
+def save_and_send_img(image, chat_id, prompt):
+    photo_payload = {"photo": image}
     message_url = f"{BOT_URL}/sendPhoto?chat_id={chat_id}&caption={prompt}"
     requests.post(message_url, files=photo_payload).json()
     if bh_validity:
@@ -66,13 +64,13 @@ def save_and_send_img(b64img, chat_id, prompt):
     else:
         current_time = time.time()
         filename = f"{current_time} - {prompt}.png"
-        PHOTOS.put(filename, image_data)
+        PHOTOS.put(filename, image)
     return {"chat_id": chat_id, "caption": prompt}
 
 
-def send_voice(chat_id, ogg_fp, title):
+def send_voice(chat_id, ogg_io, title):
     message_url = f"{BOT_URL}/sendVoice?chat_id={chat_id}"
-    files = {'voice': (title + '.ogg', ogg_fp, 'audio/ogg')}
+    files = {'voice': (title + '.ogg', ogg_io, 'audio/ogg')}
     response = requests.post(message_url, files=files)
     return response.json()
 
@@ -194,27 +192,22 @@ async def http_handler(request: Request, background_tasks: BackgroundTasks):
         return
 
     if prompt.startswith("/image "):
-        background_tasks.add_task(process_image_request, chat_id, prompt)
+        background_tasks.add_task(process_image_request, chat_id, prompt[len("/image "):])
         return send_message(chat_id, "Creating 🎨")
 
     if prompt.startswith("/speech "):
-        background_tasks.add_task(process_speech_request, chat_id, prompt)
+        background_tasks.add_task(process_speech_request, chat_id, prompt[len("/speech "):])
         return send_message(chat_id, "Processing started ⏳")
 
     return send_message(chat_id, "Send /image {prompt} to generate an image, or /speech {text or link to PDF} to generate audio.")
 
 
 def process_image_request(chat_id, prompt):
-    image_prompt = prompt[len("/image "):]
-    response = image_generator.generate(image_prompt)
-    if "b64_json" in response:
-        return save_and_send_img(response["b64_json"], chat_id, image_prompt)
-    elif "error" in response:
-        return send_message(chat_id, response["error"])
+    image = image_generator.generate(prompt)
+    return save_and_send_img(image, chat_id, prompt)
 
 
 def process_speech_request(chat_id, prompt):
-    prompt = prompt[len("/speech "):]
     text = ""
     title = "audio"
     if is_valid_url(prompt):
@@ -234,11 +227,8 @@ def process_speech_request(chat_id, prompt):
         # TODO Add LessWrong API / Graphql support
         # TODO Add BeautifulSoup / general article scraping support?
 
-    response = speech_generator.text_to_speech(text)
-    if "ogg_fp" in response:
-        return send_voice(chat_id, response["ogg_fp"], title)
-    elif "error" in response:
-        return send_message(chat_id, response["error"])
+    speech_io = speech_generator.text_to_speech(text)
+    return send_voice(chat_id, speech_io, title)
 
 
 @app.get("/set_webhook")
@@ -257,22 +247,18 @@ def main():
         "Do you want to generate an image or use text-to-speech? (image/tts): ").strip().lower()
     if choice == "image":
         prompt = input("Enter a prompt for image generation: ")
-        response = image_generator.generate(prompt)
-        if "b64_json" in response:
-            print("decoding...")
-            image_data = base64.b64decode(response["b64_json"])
-            with open(f"{time.time()}-{prompt[0:3]}.png", "wb") as file:
-                file.write(image_data)
-            print("Image saved successfully!")
-        elif "error" in response:
-            print(response["error"])
+        image = image_generator.generate(prompt)
+        print("decoding...")
+        with open(f"{time.time()}-{prompt[0:3]}.png", "wb") as file:
+            file.write(image)
+        print("Image saved successfully!")
     elif choice == "tts":
         prompt = input("Enter a prompt to turn into speech: ")
-        response = speech_generator.text_to_speech(prompt)
-        if "mp3_fp" in response:
-            print(f"Audio saved successfully at {response['mp3_fp']}")
-        elif "error" in response:
-            print(response["error"])
+        speech_io = speech_generator.text_to_speech(prompt)
+        filename = f"{time.time()}-speech.ogg"
+        with open(filename, "wb") as file:
+            file.write(speech_io.read())
+        print(f"Audio saved successfully at {filename}")
     else:
         print("Invalid choice. Please type 'image' or 'tts'.")
 
