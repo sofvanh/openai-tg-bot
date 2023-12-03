@@ -15,7 +15,7 @@ micros:
         - name: TELEGRAM
           description: Telegram Bot Key
           default: 'enter your key'
-        - name: OPEN_AI
+        - name: OPENAI_API_KEY
           description: Open AI Key
           default: 'enter your key'
         - name: BLACKHOLE
