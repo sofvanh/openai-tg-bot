@@ -2,6 +2,7 @@ import base64
 import os
 import time
 import requests
+import fitz
 from images import ImageGenerator
 from speech import SpeechGenerator
 from openai import OpenAI
@@ -70,9 +71,9 @@ def save_and_send_img(b64img, chat_id, prompt):
     return {"chat_id": chat_id, "caption": prompt}
 
 
-def send_audio(chat_id, audio_fp, prompt):
+def send_audio(chat_id, audio_fp, title):
     message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}"
-    audio_filename = f"{prompt[:10]}...mp3"
+    audio_filename = f"{title}.mp3"
     files = {'audio': (audio_filename, audio_fp, 'audio/mp3')}
     response = requests.post(message_url, files=files)
     return response.json()
@@ -195,10 +196,27 @@ async def http_handler(request: Request):
             return send_error(chat_id, response["error"])
 
     if prompt.startswith("/speech "):
-        text = prompt[len("/speech "):]
+        prompt = prompt[len("/speech "):]
+        text = ""
+        title = "audio"
+        if is_valid_url(prompt):
+            content_res = requests.get(prompt)
+            if content_res.headers['Content-Type'] == 'application/pdf':
+                try:
+                    with fitz.open(stream=content_res.content, filetype="pdf") as doc:
+                        title = doc.metadata['title'] if doc.metadata['title'] else "audio"
+                        for page in doc:
+                            text += page.get_text()
+                except Exception as e:
+                    return send_error(chat_id, f"Error processing PDF: {e}")
+            else:
+                return send_error(chat_id, "The URL must be a direct link to a PDF.")
+        else:
+            text = prompt
+
         response = speech_generator.text_to_speech(text)
         if "mp3_fp" in response:
-            return send_audio(chat_id, response["mp3_fp"], text)
+            return send_audio(chat_id, response["mp3_fp"], title)
         elif "error" in response:
             return send_error(chat_id, response["error"])
 
