@@ -47,10 +47,12 @@ openai.api_key = OPEN_AI_KEY
 def get_image_from_prompt(prompt):
     try:
         response = openai.Image.create(
+            model="dall-e-3",
             prompt=prompt,
             n=1,
             size="512x512",
             response_format="b64_json",
+            quality="standard",
         )
         if "error" not in response:
             return {
