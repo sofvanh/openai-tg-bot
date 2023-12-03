@@ -68,7 +68,7 @@ def save_and_send_img(b64img, chat_id, prompt):
 
 def send_audio(chat_id, audio_fp):
     audio_payload = {"audio": audio_fp}
-    message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}}"
+    message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}"
     response = requests.post(message_url, files=audio_payload)
     return response.json()
 
