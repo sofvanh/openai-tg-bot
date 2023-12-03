@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from bot import Assistant
+from helpers import is_valid_url
 from images import ImageGenerator
 from speech import SpeechGenerator
 from deta import Base
@@ -19,6 +20,7 @@ class New_ID(BaseModel):
 
 
 CONFIG = Base("config")
+BLACKHOLE_URL = os.getenv("BLACKHOLE")
 DEBUG_LOGGING_ENABLED = os.getenv(
     "DEBUG_LOGGING_ENABLED", "false").lower() == "true"
 BOT_KEY = os.getenv("TELEGRAM")
@@ -64,7 +66,7 @@ def get_webhook_info():
 @app.get("/setup")
 def setup():
     home_template = Template((open("index.html").read()))
-    blackhole_app_url = f"https://{urlparse(BLACKHOLE_URL).hostname}" if bh_validity else ""
+    blackhole_app_url = f"https://{urlparse(BLACKHOLE_URL).hostname}" if is_valid_url(BLACKHOLE_URL) else ""
     if ENV_VARS_MISSING:
         return HTMLResponse(home_template.render(status="SETUP_ENVS"))
     return HTMLResponse(home_template.render(status="SETUP_WEBHOOK", blackhole_url=blackhole_app_url))
