@@ -1,7 +1,8 @@
 import base64
 import os
-
-import openai
+import time
+from images import ImageGenerator
+from openai import OpenAI
 import requests
 from urllib.parse import urlparse
 from deta import Base, Drive
@@ -23,47 +24,32 @@ PHOTOS = Drive("generations")
 CONFIG = Base("config")
 
 BOT_KEY = os.getenv("TELEGRAM")
-OPEN_AI_KEY = os.getenv("OPEN_AI")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 BOT_URL = f"https://api.telegram.org/bot{BOT_KEY}"
 OPEN_AI_URL = "https://api.openai.com/v1/images/generations"
 BLACKHOLE_URL = os.getenv("BLACKHOLE")
+
+openai_client = OpenAI()
+image_generator = ImageGenerator(openai_client)
 
 def is_valid_url(url):
     parsed_url = urlparse(url)
     return bool(parsed_url.scheme and parsed_url.netloc)
 
+bh_validity = is_valid_url(BLACKHOLE_URL)
+
 env_error = (
         not BOT_KEY
         or BOT_KEY == "enter your key"
-        or not OPEN_AI_KEY
-        or OPEN_AI_KEY == "enter your key"
+        or not OPENAI_API_KEY
+        or OPENAI_API_KEY == "enter your key"
 )
 
-bh_validity = is_valid_url(BLACKHOLE_URL)
 
-openai.api_key = OPEN_AI_KEY
+### BACKEND + TELEGRAM FUNCTIONALITY
 
 
-def get_image_from_prompt(prompt):
-    try:
-        response = openai.Image.create(
-            model="dall-e-3",
-            prompt=prompt,
-            n=1,
-            size="512x512",
-            response_format="b64_json",
-            quality="standard",
-        )
-        if "error" not in response:
-            return {
-                "b64img": response["data"][0]["b64_json"],  # type: ignore
-                "created": response["created"],  # type: ignore
-            }
-        return {"error": response["error"]["message"]}  # type: ignore
-    except Exception as e:
-        return {"error": str(e)}  # type: ignore
-
-def save_and_send_img(b64img, chat_id, prompt, timestamp):
+def save_and_send_img(b64img, chat_id, prompt):
     image_data = base64.b64decode(b64img)
     photo_payload = {"photo": image_data}
     message_url = f"{BOT_URL}/sendPhoto?chat_id={chat_id}&caption={prompt}"
@@ -71,7 +57,8 @@ def save_and_send_img(b64img, chat_id, prompt, timestamp):
     if bh_validity:
         requests.post(BLACKHOLE_URL, files=photo_payload).json()
     else:
-        filename = f"{timestamp} - {prompt}.png"
+        current_time = time.time()
+        filename = f"{current_time} - {prompt}.png"
         success = PHOTOS.put(filename, image_data)
     return {"chat_id": chat_id, "caption": prompt}
 
@@ -85,6 +72,9 @@ def send_error(chat_id, error_message):
 def get_webhook_info():
     message_url = f"{BOT_URL}/getWebhookInfo"
     return requests.get(message_url).json()
+
+
+### API ROUTES
 
 
 @app.get("/")
@@ -104,6 +94,7 @@ def home():
 
     return HTMLResponse(home_template.render(status="ERROR"))
 
+
 @app.get("/setup")
 def setup():
     home_template = Template((open("index.html").read()))
@@ -111,6 +102,7 @@ def setup():
     if (env_error):
         return HTMLResponse(home_template.render(status="SETUP_ENVS"))
     return HTMLResponse(home_template.render(status="SETUP_WEBHOOK", blackhole_url=blackhole_app_url))
+
 
 @app.get("/authorize")
 def auth():
@@ -173,15 +165,13 @@ async def http_handler(request: Request):
         requests.post(message_url, json=payload).json()
         return
 
-    open_ai_resp = get_image_from_prompt(prompt)
-    if "b64img" in open_ai_resp:
+    response = image_generator.generate(prompt)
+    if "b64_json" in response:
         return save_and_send_img(
-            open_ai_resp["b64img"], chat_id, prompt, open_ai_resp["created"]
+            response["b64_json"], chat_id, prompt
         )
-    print(prompt)
-
-    if "error" in open_ai_resp:
-        return send_error(chat_id, open_ai_resp["error"])
+    elif "error" in response:
+        return send_error(chat_id, response["error"])
 
     return send_error(chat_id, "Unknown error, lol, handling coming soon")
 
@@ -192,3 +182,24 @@ def url_setter():
     set_url = f"{BOT_URL}/setWebHook?url=https://{PROG_URL}/open"
     resp = requests.get(set_url)
     return resp.json()
+
+
+### LOCAL TESTING
+
+
+def main():
+    prompt = input("Enter a prompt: ")
+    response = image_generator.generate(prompt)
+    if "b64_json" in response:
+        print("decoding...")
+        image_data = base64.b64decode(response["b64_json"])
+        with open(f"{time.time()}-{prompt[0:3]}.png", "wb") as file:
+            file.write(image_data)
+        print("Image saved successfully!")
+    elif "error" in response:
+        print(response["error"])
+    else:
+        print("Unknown error, lol, handling coming soon")
+
+if __name__ == "__main__":
+    main()
