@@ -66,10 +66,12 @@ def save_and_send_img(b64img, chat_id, prompt):
         PHOTOS.put(filename, image_data)
     return {"chat_id": chat_id, "caption": prompt}
 
-def send_audio(chat_id, audio_fp):
-    audio_payload = {"audio": audio_fp}
+
+def send_audio(chat_id, audio_fp, prompt):
     message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}"
-    response = requests.post(message_url, files=audio_payload)
+    audio_filename = f"{prompt[:10]}...mp3"
+    files = {'audio': (audio_filename, audio_fp, 'audio/mp3')}
+    response = requests.post(message_url, files=files)
     return response.json()
 
 def send_error(chat_id, error_message):
@@ -188,7 +190,7 @@ async def http_handler(request: Request):
         text = prompt[len("/speech "):]
         response = speech_generator.text_to_speech(text)
         if "mp3_fp" in response:
-            return send_audio(chat_id, response["mp3_fp"])
+            return send_audio(chat_id, response["mp3_fp"], text)
         elif "error" in response:
             return send_error(chat_id, response["error"])
 

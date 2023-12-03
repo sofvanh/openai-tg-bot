@@ -1,5 +1,4 @@
-import time
-from pathlib import Path
+import io
 from openai import OpenAI
 
 class SpeechGenerator:
@@ -13,8 +12,10 @@ class SpeechGenerator:
                 voice="onyx",
                 input=text
             )
-            fp = Path(__file__).parent / f"{time.time()}.mp3"
-            response.stream_to_file(fp)
+            fp = io.BytesIO()
+            for chunk in response.iter_bytes():
+                fp.write(chunk)
+            fp.seek(0)
             return {"mp3_fp": fp}
         except Exception as e:
             return {"error": str(e)}
