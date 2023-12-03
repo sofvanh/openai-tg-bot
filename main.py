@@ -1,12 +1,12 @@
 import os
 import time
 import requests
-import fitz
+from bot import Assistant
 from images import ImageGenerator
 from speech import SpeechGenerator
+from deta import Base
 from openai import OpenAI
 from urllib.parse import urlparse
-from deta import Base, Drive
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,80 +18,21 @@ class New_ID(BaseModel):
     new_id: int
 
 
-app = FastAPI()
-app.mount("/public", StaticFiles(directory="public"), name="public")
-
-PHOTOS = Drive("generations")
 CONFIG = Base("config")
-
 DEBUG_LOGGING_ENABLED = os.getenv(
     "DEBUG_LOGGING_ENABLED", "false").lower() == "true"
 BOT_KEY = os.getenv("TELEGRAM")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 BOT_URL = f"https://api.telegram.org/bot{BOT_KEY}"
-OPEN_AI_URL = "https://api.openai.com/v1/images/generations"
-BLACKHOLE_URL = os.getenv("BLACKHOLE")
+ENV_VARS_MISSING = (not BOT_KEY or BOT_KEY == "enter your key"
+                    or not OPENAI_API_KEY or OPENAI_API_KEY == "enter your key")
 
+bot = Assistant()
 openai_client = OpenAI()
 image_generator = ImageGenerator(openai_client)
 speech_generator = SpeechGenerator(openai_client)
-
-
-def is_valid_url(url):
-    parsed_url = urlparse(url)
-    return bool(parsed_url.scheme and parsed_url.netloc)
-
-
-bh_validity = is_valid_url(BLACKHOLE_URL)
-
-env_error = (
-    not BOT_KEY
-    or BOT_KEY == "enter your key"
-    or not OPENAI_API_KEY
-    or OPENAI_API_KEY == "enter your key"
-)
-
-
-# BACKEND + TELEGRAM FUNCTIONALITY
-
-
-def save_and_send_img(image, chat_id, prompt):
-    photo_payload = {"photo": image}
-    message_url = f"{BOT_URL}/sendPhoto?chat_id={chat_id}&caption={prompt}"
-    requests.post(message_url, files=photo_payload).json()
-    if bh_validity:
-        requests.post(BLACKHOLE_URL, files=photo_payload).json()
-    else:
-        current_time = time.time()
-        filename = f"{current_time} - {prompt}.png"
-        PHOTOS.put(filename, image)
-    return {"chat_id": chat_id, "caption": prompt}
-
-
-def send_voice(chat_id, ogg_io, title):
-    message_url = f"{BOT_URL}/sendVoice?chat_id={chat_id}"
-    files = {'voice': (title + '.ogg', ogg_io, 'audio/ogg')}
-    response = requests.post(message_url, files=files)
-    return response.json()
-
-
-def send_audio(chat_id, audio_fp, title):
-    message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}"
-    audio_filename = f"{title}.mp3"
-    files = {'audio': (audio_filename, audio_fp, 'audio/mp3')}
-    response = requests.post(message_url, files=files)
-    return response.json()
-
-
-def send_message(chat_id, msg):
-    message_url = f"{BOT_URL}/sendMessage"
-    payload = {"text": msg, "chat_id": chat_id}
-    return requests.post(message_url, json=payload).json()
-
-
-def get_webhook_info():
-    message_url = f"{BOT_URL}/getWebhookInfo"
-    return requests.get(message_url).json()
+app = FastAPI()
+app.mount("/public", StaticFiles(directory="public"), name="public")
 
 
 # API ROUTES
@@ -103,7 +44,7 @@ def home():
 
     response = get_webhook_info()
 
-    if (env_error):
+    if ENV_VARS_MISSING:
         return RedirectResponse("/setup")
 
     if response and "result" in response and not response["result"]["url"]:
@@ -115,11 +56,16 @@ def home():
     return HTMLResponse(home_template.render(status="ERROR"))
 
 
+def get_webhook_info():
+    message_url = f"{BOT_URL}/getWebhookInfo"
+    return requests.get(message_url).json()
+
+
 @app.get("/setup")
 def setup():
     home_template = Template((open("index.html").read()))
     blackhole_app_url = f"https://{urlparse(BLACKHOLE_URL).hostname}" if bh_validity else ""
-    if (env_error):
+    if ENV_VARS_MISSING:
         return HTMLResponse(home_template.render(status="SETUP_ENVS"))
     return HTMLResponse(home_template.render(status="SETUP_WEBHOOK", blackhole_url=blackhole_app_url))
 
@@ -156,79 +102,34 @@ async def http_handler(request: Request, background_tasks: BackgroundTasks):
         print(incoming_data)
         print(incoming_data["message"])
 
-    if "message" not in incoming_data:
-        print(incoming_data)
-        return send_message(None, "Unknown error, lol, handling coming soon")
-
     prompt = incoming_data["message"]["text"]
     chat_id = incoming_data["message"]["chat"]["id"]
     authorized_chat_ids = CONFIG.get("chat_ids")
 
     if prompt in ["/chat-id", "/chatid"]:
-        payload = {
-            "text": f"```{chat_id}```",
-            "chat_id": chat_id,
-            "parse_mode": "MarkdownV2",
-        }
-        message_url = f"{BOT_URL}/sendMessage"
-        requests.post(message_url, json=payload).json()
-        return
-
-    if prompt in ["/start", "/help"]:
-        response_text = (
-            "welcome to telemage. to generate an image with ai,"
-            " send /image followed by a prompt or phrase and i'll do some magic."
-        )
-        payload = {"text": response_text, "chat_id": chat_id}
-        message_url = f"{BOT_URL}/sendMessage"
-        requests.post(message_url, json=payload).json()
-        return
-
-    if authorized_chat_ids is None or chat_id not in authorized_chat_ids.get("value"):
-        payload = {
-            "text": "you're not authorized. contact this bot's admin to authorize.", "chat_id": chat_id}
-        message_url = f"{BOT_URL}/sendMessage"
-        requests.post(message_url, json=payload).json()
-        return
-
-    if prompt.startswith("/image "):
-        background_tasks.add_task(process_image_request, chat_id, prompt[len("/image "):])
-        return send_message(chat_id, "Creating 🎨")
-
-    if prompt.startswith("/speech "):
-        background_tasks.add_task(process_speech_request, chat_id, prompt[len("/speech "):])
-        return send_message(chat_id, "Processing started ⏳")
-
-    return send_message(chat_id, "Send /image {prompt} to generate an image, or /speech {text or link to PDF} to generate audio.")
-
-
-def process_image_request(chat_id, prompt):
-    image = image_generator.generate(prompt)
-    return save_and_send_img(image, chat_id, prompt)
-
-
-def process_speech_request(chat_id, prompt):
-    text = ""
-    title = "audio"
-    if is_valid_url(prompt):
-        content_res = requests.get(prompt)
-        if content_res.headers['Content-Type'] == 'application/pdf':
-            try:
-                with fitz.open(stream=content_res.content, filetype="pdf") as doc:
-                    title = doc.metadata['title'] if doc.metadata['title'] else "audio"
-                    for page in doc:
-                        text += page.get_text()
-            except Exception as e:
-                return send_message(chat_id, f"Error processing PDF: {e}")
-        else:
-            return send_message(chat_id, "The URL must be a direct link to a PDF.")
+        bot.send_message(chat_id, f"```{chat_id}```")
+        return "ok"
+    elif prompt in ["/start", "/help"]:
+        print("We here")
+        bot.send_message(
+            chat_id, "Welcome. Send /image {prompt} to generate a message, or /speech {Text or link to PDF} to generate audio.")
+        return "ok"
+    elif authorized_chat_ids is None or chat_id not in authorized_chat_ids.get("value"):
+        bot.send_message(
+            chat_id, "You're not authorized. Contact this bot's admin...")
+        return "ok"
+    elif prompt.startswith("/image "):
+        background_tasks.add_task(
+            bot.process_image_request, chat_id, prompt[len("/image "):])
+        return "ok"
+    elif prompt.startswith("/speech "):
+        background_tasks.add_task(
+            bot.process_speech_request, chat_id, prompt[len("/speech "):])
+        return "ok"
     else:
-        text = prompt
-        # TODO Add LessWrong API / Graphql support
-        # TODO Add BeautifulSoup / general article scraping support?
-
-    speech_io = speech_generator.text_to_speech(text)
-    return send_voice(chat_id, speech_io, title)
+        bot.send_message(
+            chat_id, "Send /image {prompt} to generate an image, or /speech {text or link to PDF} to generate audio.")
+        return "ok"
 
 
 @app.get("/set_webhook")
