@@ -22,7 +22,6 @@ class New_ID(BaseModel):
 app = FastAPI()
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
-# TODO Move this into their own package and make them fail gracefully.
 PHOTOS = Drive("generations")
 CONFIG = Base("config")
 
