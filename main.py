@@ -129,6 +129,7 @@ async def http_handler(request: Request, background_tasks: BackgroundTasks):
             bot.process_speech_request, chat_id, prompt[len("/speech "):])
         return "ok"
     else:
+        # TODO Add history so the bot can see what's happened before; Then add regular text prompting by chat.
         bot.send_message(
             chat_id, "Send /image {prompt} to generate an image, or /speech {text or link to PDF} to generate audio.")
         return "ok"
