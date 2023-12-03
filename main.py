@@ -1,9 +1,10 @@
 import base64
 import os
 import time
-from images import ImageGenerator
-from openai import OpenAI
 import requests
+from images import ImageGenerator
+from speech import SpeechGenerator
+from openai import OpenAI
 from urllib.parse import urlparse
 from deta import Base, Drive
 from fastapi import FastAPI, Request
@@ -20,6 +21,7 @@ class New_ID(BaseModel):
 app = FastAPI()
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
+# TODO Move this into their own package and make them fail gracefully.
 PHOTOS = Drive("generations")
 CONFIG = Base("config")
 
@@ -31,6 +33,7 @@ BLACKHOLE_URL = os.getenv("BLACKHOLE")
 
 openai_client = OpenAI()
 image_generator = ImageGenerator(openai_client)
+speech_generator = SpeechGenerator(openai_client)
 
 def is_valid_url(url):
     parsed_url = urlparse(url)
@@ -172,6 +175,9 @@ async def http_handler(request: Request):
             return save_and_send_img(response["b64_json"], chat_id, image_prompt)
         elif "error" in response:
             return send_error(chat_id, response["error"])
+    
+    # TODO Command for text-to-speech
+
     else:
         return send_error(chat_id, "Send /image followed by a prompt to generate an image.")
 
@@ -190,18 +196,27 @@ def url_setter():
 
 
 def main():
-    prompt = input("Enter a prompt: ")
-    response = image_generator.generate(prompt)
-    if "b64_json" in response:
-        print("decoding...")
-        image_data = base64.b64decode(response["b64_json"])
-        with open(f"{time.time()}-{prompt[0:3]}.png", "wb") as file:
-            file.write(image_data)
-        print("Image saved successfully!")
-    elif "error" in response:
-        print(response["error"])
+    choice = input("Do you want to generate an image or use text-to-speech? (image/tts): ").strip().lower()
+    if choice == "image":
+        prompt = input("Enter a prompt for image generation: ")
+        response = image_generator.generate(prompt)
+        if "b64_json" in response:
+            print("decoding...")
+            image_data = base64.b64decode(response["b64_json"])
+            with open(f"{time.time()}-{prompt[0:3]}.png", "wb") as file:
+                file.write(image_data)
+            print("Image saved successfully!")
+        elif "error" in response:
+            print(response["error"])
+    elif choice == "tts":
+        prompt = input("Enter a prompt to turn into speech: ")
+        response = speech_generator.text_to_speech(prompt)
+        if "mp3_fp" in response:
+            print(f"Audio saved successfully at {response['mp3_fp']}")
+        elif "error" in response:
+            print(response["error"])
     else:
-        print("Unknown error, lol, handling coming soon")
+        print("Invalid choice. Please type 'image' or 'tts'.")
 
 if __name__ == "__main__":
     main()
