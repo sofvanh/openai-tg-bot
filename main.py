@@ -71,6 +71,13 @@ def save_and_send_img(b64img, chat_id, prompt):
     return {"chat_id": chat_id, "caption": prompt}
 
 
+def send_voice(chat_id, ogg_fp, title):
+    message_url = f"{BOT_URL}/sendVoice?chat_id={chat_id}"
+    files = {'voice': (title + '.ogg', ogg_fp, 'audio/ogg')}
+    response = requests.post(message_url, files=files)
+    return response.json()
+
+
 def send_audio(chat_id, audio_fp, title):
     message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}"
     audio_filename = f"{title}.mp3"
@@ -224,8 +231,8 @@ def process_speech_request(chat_id, prompt):
         # TODO Add BeautifulSoup / general article scraping support?
 
     response = speech_generator.text_to_speech(text)
-    if "mp3_fp" in response:
-        return send_audio(chat_id, response["mp3_fp"], title)
+    if "ogg_fp" in response:
+        return send_voice(chat_id, response["ogg_fp"], title)
     elif "error" in response:
         return send_message(chat_id, response["error"])
 
