@@ -25,6 +25,7 @@ app.mount("/public", StaticFiles(directory="public"), name="public")
 PHOTOS = Drive("generations")
 CONFIG = Base("config")
 
+DEBUG_LOGGING_ENABLED = os.getenv("DEBUG_LOGGING_ENABLED", "false").lower() == "true"
 BOT_KEY = os.getenv("TELEGRAM")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 BOT_URL = f"https://api.telegram.org/bot{BOT_KEY}"
@@ -62,15 +63,19 @@ def save_and_send_img(b64img, chat_id, prompt):
     else:
         current_time = time.time()
         filename = f"{current_time} - {prompt}.png"
-        success = PHOTOS.put(filename, image_data)
+        PHOTOS.put(filename, image_data)
     return {"chat_id": chat_id, "caption": prompt}
 
+def send_audio(chat_id, audio_fp):
+    audio_payload = {"audio": audio_fp}
+    message_url = f"{BOT_URL}/sendAudio?chat_id={chat_id}}"
+    response = requests.post(message_url, files=audio_payload)
+    return response.json()
 
 def send_error(chat_id, error_message):
     message_url = f"{BOT_URL}/sendMessage"
     payload = {"text": error_message, "chat_id": chat_id}
     return requests.post(message_url, json=payload).json()
-
 
 def get_webhook_info():
     message_url = f"{BOT_URL}/getWebhookInfo"
@@ -133,6 +138,9 @@ def add_auth(item: New_ID):
 @app.post("/open")
 async def http_handler(request: Request):
     incoming_data = await request.json()
+    if DEBUG_LOGGING_ENABLED:
+        print(incoming_data)
+        print(incoming_data["message"])
 
     if "message" not in incoming_data:
         print(incoming_data)
@@ -176,7 +184,13 @@ async def http_handler(request: Request):
         elif "error" in response:
             return send_error(chat_id, response["error"])
     
-    # TODO Command for text-to-speech
+    if prompt.startswith("/speech "):
+        text = prompt[len("/speech "):]
+        response = speech_generator.text_to_speech(text)
+        if "mp3_fp" in response:
+            return send_audio(chat_id, response["mp3_fp"])
+        elif "error" in response:
+            return send_error(chat_id, response["error"])
 
     else:
         return send_error(chat_id, "Send /image followed by a prompt to generate an image.")

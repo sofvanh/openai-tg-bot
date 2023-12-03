@@ -12,6 +12,9 @@ micros:
     dev: 'make dev'
     presets:
       env:
+        - name: DEBUG_LOGGING_ENABLED
+          description: Extensive logging (true/false)
+          default: 'false'
         - name: TELEGRAM
           description: Telegram Bot Key
           default: 'enter your key'
