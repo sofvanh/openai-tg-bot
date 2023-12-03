@@ -1,5 +1,6 @@
 from openai import OpenAI
 
+
 class ImageGenerator:
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
@@ -21,4 +22,3 @@ class ImageGenerator:
             }
         except Exception as e:
             return {"error": str(e)}
-

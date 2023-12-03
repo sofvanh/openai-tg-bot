@@ -1,10 +1,11 @@
 import io
 from openai import OpenAI
 
+
 class SpeechGenerator:
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
-    
+
     def text_to_speech(self, text):
         try:
             response = self.openai_client.audio.speech.create(

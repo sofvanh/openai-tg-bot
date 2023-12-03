@@ -25,7 +25,8 @@ app.mount("/public", StaticFiles(directory="public"), name="public")
 PHOTOS = Drive("generations")
 CONFIG = Base("config")
 
-DEBUG_LOGGING_ENABLED = os.getenv("DEBUG_LOGGING_ENABLED", "false").lower() == "true"
+DEBUG_LOGGING_ENABLED = os.getenv(
+    "DEBUG_LOGGING_ENABLED", "false").lower() == "true"
 BOT_KEY = os.getenv("TELEGRAM")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 BOT_URL = f"https://api.telegram.org/bot{BOT_KEY}"
@@ -36,21 +37,23 @@ openai_client = OpenAI()
 image_generator = ImageGenerator(openai_client)
 speech_generator = SpeechGenerator(openai_client)
 
+
 def is_valid_url(url):
     parsed_url = urlparse(url)
     return bool(parsed_url.scheme and parsed_url.netloc)
 
+
 bh_validity = is_valid_url(BLACKHOLE_URL)
 
 env_error = (
-        not BOT_KEY
-        or BOT_KEY == "enter your key"
-        or not OPENAI_API_KEY
-        or OPENAI_API_KEY == "enter your key"
+    not BOT_KEY
+    or BOT_KEY == "enter your key"
+    or not OPENAI_API_KEY
+    or OPENAI_API_KEY == "enter your key"
 )
 
 
-### BACKEND + TELEGRAM FUNCTIONALITY
+# BACKEND + TELEGRAM FUNCTIONALITY
 
 
 def save_and_send_img(b64img, chat_id, prompt):
@@ -74,17 +77,19 @@ def send_audio(chat_id, audio_fp, prompt):
     response = requests.post(message_url, files=files)
     return response.json()
 
+
 def send_error(chat_id, error_message):
     message_url = f"{BOT_URL}/sendMessage"
     payload = {"text": error_message, "chat_id": chat_id}
     return requests.post(message_url, json=payload).json()
+
 
 def get_webhook_info():
     message_url = f"{BOT_URL}/getWebhookInfo"
     return requests.get(message_url).json()
 
 
-### API ROUTES
+# API ROUTES
 
 
 @app.get("/")
@@ -123,7 +128,8 @@ def auth():
         return HTMLResponse(home_template.render(status="AUTH", chat_ids=None))
 
     return HTMLResponse(
-        home_template.render(status="AUTH", chat_ids=authorized_chat_ids.get("value"))  # type: ignore
+        home_template.render(
+            status="AUTH", chat_ids=authorized_chat_ids.get("value"))
     )
 
 
@@ -133,7 +139,8 @@ def add_auth(item: New_ID):
         CONFIG.put(data=[item.new_id], key="chat_ids")
         return
 
-    CONFIG.update(updates={"value": CONFIG.util.append(item.new_id)}, key="chat_ids")
+    CONFIG.update(
+        updates={"value": CONFIG.util.append(item.new_id)}, key="chat_ids")
     return
 
 
@@ -172,8 +179,9 @@ async def http_handler(request: Request):
         requests.post(message_url, json=payload).json()
         return
 
-    if authorized_chat_ids is None or chat_id not in authorized_chat_ids.get("value"):  # type: ignore
-        payload = {"text": "you're not authorized. contact this bot's admin to authorize.", "chat_id": chat_id}
+    if authorized_chat_ids is None or chat_id not in authorized_chat_ids.get("value"):
+        payload = {
+            "text": "you're not authorized. contact this bot's admin to authorize.", "chat_id": chat_id}
         message_url = f"{BOT_URL}/sendMessage"
         requests.post(message_url, json=payload).json()
         return
@@ -185,7 +193,7 @@ async def http_handler(request: Request):
             return save_and_send_img(response["b64_json"], chat_id, image_prompt)
         elif "error" in response:
             return send_error(chat_id, response["error"])
-    
+
     if prompt.startswith("/speech "):
         text = prompt[len("/speech "):]
         response = speech_generator.text_to_speech(text)
@@ -208,11 +216,12 @@ def url_setter():
     return resp.json()
 
 
-### LOCAL TESTING
+# LOCAL TESTING
 
 
 def main():
-    choice = input("Do you want to generate an image or use text-to-speech? (image/tts): ").strip().lower()
+    choice = input(
+        "Do you want to generate an image or use text-to-speech? (image/tts): ").strip().lower()
     if choice == "image":
         prompt = input("Enter a prompt for image generation: ")
         response = image_generator.generate(prompt)
@@ -233,6 +242,7 @@ def main():
             print(response["error"])
     else:
         print("Invalid choice. Please type 'image' or 'tts'.")
+
 
 if __name__ == "__main__":
     main()
