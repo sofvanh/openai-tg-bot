@@ -1,6 +1,6 @@
 # Spacefile Docs: https://go.deta.dev/docs/spacefile/v0
 v: 0
-icon: ./robot-painter.png
+icon: ./image.png
 app_name: openai-bot
 micros:
   - name: openai-bot
