@@ -8,7 +8,7 @@ from speech import SpeechGenerator
 from openai import OpenAI
 from urllib.parse import urlparse
 from deta import Base, Drive
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
@@ -79,9 +79,9 @@ def send_audio(chat_id, audio_fp, title):
     return response.json()
 
 
-def send_error(chat_id, error_message):
+def send_message(chat_id, msg):
     message_url = f"{BOT_URL}/sendMessage"
-    payload = {"text": error_message, "chat_id": chat_id}
+    payload = {"text": msg, "chat_id": chat_id}
     return requests.post(message_url, json=payload).json()
 
 
@@ -146,7 +146,7 @@ def add_auth(item: New_ID):
 
 
 @app.post("/open")
-async def http_handler(request: Request):
+async def http_handler(request: Request, background_tasks: BackgroundTasks):
     incoming_data = await request.json()
     if DEBUG_LOGGING_ENABLED:
         print(incoming_data)
@@ -154,7 +154,7 @@ async def http_handler(request: Request):
 
     if "message" not in incoming_data:
         print(incoming_data)
-        return send_error(None, "Unknown error, lol, handling coming soon")
+        return send_message(None, "Unknown error, lol, handling coming soon")
 
     prompt = incoming_data["message"]["text"]
     chat_id = incoming_data["message"]["chat"]["id"]
@@ -193,37 +193,41 @@ async def http_handler(request: Request):
         if "b64_json" in response:
             return save_and_send_img(response["b64_json"], chat_id, image_prompt)
         elif "error" in response:
-            return send_error(chat_id, response["error"])
+            return send_message(chat_id, response["error"])
 
     if prompt.startswith("/speech "):
-        prompt = prompt[len("/speech "):]
-        text = ""
-        title = "audio"
-        if is_valid_url(prompt):
-            content_res = requests.get(prompt)
-            if content_res.headers['Content-Type'] == 'application/pdf':
-                try:
-                    with fitz.open(stream=content_res.content, filetype="pdf") as doc:
-                        title = doc.metadata['title'] if doc.metadata['title'] else "audio"
-                        for page in doc:
-                            text += page.get_text()
-                except Exception as e:
-                    return send_error(chat_id, f"Error processing PDF: {e}")
-            else:
-                return send_error(chat_id, "The URL must be a direct link to a PDF.")
+        background_tasks.add_task(process_speech_request, chat_id, prompt)
+        return send_message(chat_id, "Processing started ⏳")
+
+    return send_message(chat_id, "Send /image {prompt} to generate an image, or /speech {text or link to PDF} to generate audio.")
+
+
+def process_speech_request(chat_id, prompt):
+    prompt = prompt[len("/speech "):]
+    text = ""
+    title = "audio"
+    if is_valid_url(prompt):
+        content_res = requests.get(prompt)
+        if content_res.headers['Content-Type'] == 'application/pdf':
+            try:
+                with fitz.open(stream=content_res.content, filetype="pdf") as doc:
+                    title = doc.metadata['title'] if doc.metadata['title'] else "audio"
+                    for page in doc:
+                        text += page.get_text()
+            except Exception as e:
+                return send_message(chat_id, f"Error processing PDF: {e}")
         else:
-            text = prompt
-
-        response = speech_generator.text_to_speech(text)
-        if "mp3_fp" in response:
-            return send_audio(chat_id, response["mp3_fp"], title)
-        elif "error" in response:
-            return send_error(chat_id, response["error"])
-
+            return send_message(chat_id, "The URL must be a direct link to a PDF.")
     else:
-        return send_error(chat_id, "Send /image followed by a prompt to generate an image.")
+        text = prompt
+        # TODO Add LessWrong API / Graphql support
+        # TODO Add BeautifulSoup / general article scraping support?
 
-    return send_error(chat_id, "Unknown error, lol, handling coming soon")
+    response = speech_generator.text_to_speech(text)
+    if "mp3_fp" in response:
+        return send_audio(chat_id, response["mp3_fp"], title)
+    elif "error" in response:
+        return send_message(chat_id, response["error"])
 
 
 @app.get("/set_webhook")
